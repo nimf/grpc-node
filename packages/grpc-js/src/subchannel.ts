@@ -41,6 +41,7 @@ import { SubchannelRef, ChannelzTrace, ChannelzChildrenTracker, SubchannelInfo, 
 const clientVersion = require('../../package.json').version;
 
 const TRACER_NAME = 'subchannel';
+const FLOW_CONTROL_TRACER_NAME = 'subchannel_flowctrl';
 
 const MIN_CONNECT_TIMEOUT_MS = 20000;
 const INITIAL_BACKOFF_MS = 1000;
@@ -176,6 +177,7 @@ export class Subchannel {
   private messagesReceived = 0;
   private lastMessageSentTimestamp: Date | null = null;
   private lastMessageReceivedTimestamp: Date | null = null;
+  private windowReportInterval: NodeJS.Timer | null = null;
 
   /**
    * A class representing a connection to a single backend.
@@ -322,6 +324,10 @@ export class Subchannel {
 
   private refTrace(text: string): void {
     logging.trace(LogVerbosity.DEBUG, 'subchannel_refcount', '(' + this.channelzRef.id + ') ' + this.subchannelAddressString + ' ' + text);
+  }
+
+  private flowControlTrace(text: string): void {
+    logging.trace(LogVerbosity.DEBUG, FLOW_CONTROL_TRACER_NAME, '(' + this.channelzRef.id + ') ' + this.subchannelAddressString + ' ' + text);
   }
 
   private handleBackoffTimer() {
@@ -572,6 +578,18 @@ export class Subchannel {
             JSON.stringify(settings)
         );
       });
+    }
+    if (logging.isTracerEnabled(FLOW_CONTROL_TRACER_NAME)) {
+      this.windowReportInterval = setInterval(() => {
+        if (!this.session) {
+          if (this.windowReportInterval) {
+            clearInterval(this.windowReportInterval);
+          }
+          return;
+        }
+        this.flowControlTrace('local window size: ' + this.session.state.localWindowSize);
+        this.flowControlTrace('remote window size: ' + this.session.state.remoteWindowSize);
+      }, 5000);
     }
   }
 
